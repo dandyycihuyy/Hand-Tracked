@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hand Tracked — Perkenalan Diri</title>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #050810;
+    --surface: rgba(10, 20, 50, 0.8);
+    --accent: #00f5ff;
+    --accent2: #ff006e;
+    --accent3: #7b2fff;
+    --text: #e8f4f8;
+    --dim: rgba(232, 244, 248, 0.4);
+    --grid: rgba(0, 245, 255, 0.04);
+    --glow: 0 0 40px rgba(0, 245, 255, 0.3);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  /* ── Grid background ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* ── Orb glow ── */
+  .orb {
+    position: fixed; border-radius: 50%; filter: blur(80px); z-index: 0; pointer-events: none;
+  }
+  .orb1 { width: 400px; height: 400px; background: rgba(0, 245, 255, 0.08); top: -100px; left: -100px; }
+  .orb2 { width: 350px; height: 350px; background: rgba(255, 0, 110, 0.07); bottom: -80px; right: -80px; }
+  .orb3 { width: 300px; height: 300px; background: rgba(123, 47, 255, 0.06); top: 50%; left: 50%; transform: translate(-50%,-50%); }
+
+  /* ── Camera (hidden, top-right small mirror) ── */
+  #videoContainer {
+    position: fixed; top: 16px; right: 16px; z-index: 100;
+    width: 90px; height: 120px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 245, 255, 0.3);
+    box-shadow: 0 0 20px rgba(0, 245, 255, 0.2);
+  }
+  #inputVideo {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    display: block;
+  }
+  #handCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    transform: scaleX(-1);
+  }
+
+  /* ── Main layout ── */
+  #app {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 24px 24px 100px;
+    gap: 20px;
+  }
+
+  /* ── Slide card ── */
+  .slide {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+    animation: fadeSlide .5s ease;
+    max-width: 500px;
+    width: 100%;
+  }
+  .slide.active { display: flex; }
+
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(20px) scale(.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .slide-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .slide-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 245, 255, 0.08);
+    border: 1px solid rgba(0, 245, 255, 0.2);
+    border-radius: 99px;
+    padding: 6px 16px;
+    font-size: 12px;
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 1px;
+  }
+
+  .slide h1 {
+    font-size: clamp(28px, 8vw, 48px);
+    font-weight: 800;
+    line-height: 1.1;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 60%, var(--accent3) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .slide h2 {
+    font-size: clamp(22px, 6vw, 36px);
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .slide p {
+    font-size: clamp(14px, 3.5vw, 17px);
+    color: var(--dim);
+    line-height: 1.7;
+    max-width: 380px;
+  }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    width: 100%;
+    max-width: 380px;
+  }
+
+  .mini-card {
+    background: rgba(0, 245, 255, 0.05);
+    border: 1px solid rgba(0, 245, 255, 0.15);
+    border-radius: 12px;
+    padding: 14px;
+    text-align: left;
+  }
+  .mini-card .label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+  .mini-card .val {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .skill-list {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  }
+  .skill-pill {
+    background: rgba(123, 47, 255, 0.12);
+    border: 1px solid rgba(123, 47, 255, 0.3);
+    border-radius: 99px;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: #c0aaff;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+  }
+
+  .big-emoji {
+    font-size: clamp(50px, 14vw, 80px);
+    line-height: 1;
+    filter: drop-shadow(0 0 20px rgba(0,245,255,0.4));
+  }
+
+  /* ── Progress dots ── */
+  #dots {
+    position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; z-index: 20;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    transition: all .3s;
+  }
+  .dot.active {
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+    width: 24px; border-radius: 4px;
+  }
+
+  /* ── Gesture HUD ── */
+  #gestureHUD {
+    position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+    z-index: 30;
+    background: rgba(5, 8, 16, 0.85);
+    border: 1px solid rgba(0, 245, 255, 0.2);
+    border-radius: 99px;
+    padding: 8px 20px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 1px;
+    white-space: nowrap;
+    display: flex; align-items: center; gap: 8px;
+    transition: opacity .3s;
+  }
+  .hud-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: .4; transform: scale(.7); }
+  }
+
+  /* ── Gesture feedback flash ── */
+  #gestureFeedback {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 50;
+    font-size: 60px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .2s;
+  }
+  #gestureFeedback.show {
+    opacity: 1;
+    animation: popIn .5s ease forwards;
+  }
+  @keyframes popIn {
+    0%   { opacity: 1; transform: translate(-50%,-50%) scale(.5); }
+    50%  { opacity: 1; transform: translate(-50%,-50%) scale(1.3); }
+    100% { opacity: 0; transform: translate(-50%,-50%) scale(1); }
+  }
+
+  /* ── Loading screen ── */
+  #loading {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: var(--bg);
+    gap: 20px;
+  }
+  #loading h2 {
+    font-size: 18px; font-weight: 700;
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 2px;
+  }
+  #loading p { font-size: 13px; color: var(--dim); font-family: 'Space Mono', monospace; }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 2px solid rgba(0,245,255,0.1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Guide overlay ── */
+  #guide {
+    position: fixed; inset: 0; z-index: 150;
+    background: rgba(5,8,16,0.95);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 24px;
+    padding: 32px;
+  }
+  #guide h2 {
+    font-size: 22px; font-weight: 800;
+    background: linear-gradient(135deg, #fff, var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .gesture-guide {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 12px; width: 100%; max-width: 380px;
+  }
+  .gg-card {
+    background: rgba(0,245,255,0.05);
+    border: 1px solid rgba(0,245,255,0.15);
+    border-radius: 14px;
+    padding: 14px 10px;
+    text-align: center;
+    display: flex; flex-direction: column; gap: 8px; align-items: center;
+  }
+  .gg-card .gg-emoji { font-size: 32px; }
+  .gg-card .gg-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px; color: var(--accent);
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+  .gg-card .gg-desc { font-size: 12px; color: var(--dim); line-height: 1.4; }
+  .start-btn {
+    background: var(--accent);
+    color: var(--bg);
+    border: none; cursor: pointer;
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    padding: 14px 40px;
+    border-radius: 99px;
+    letter-spacing: 1px;
+    box-shadow: 0 0 30px rgba(0,245,255,0.4);
+    transition: transform .2s, box-shadow .2s;
+  }
+  .start-btn:active { transform: scale(.95); }
+</style>
+</head>
+<body>
+
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+<div class="orb orb3"></div>
+
+<!-- Loading -->
+<div id="loading">
+  <div class="spinner"></div>
+  <h2>MEMUAT MEDIAPIPE</h2>
+  <p>Menyiapkan hand tracking...</p>
+</div>
+
+<!-- Guide -->
+<div id="guide" style="display:none">
+  <div class="slide-tag">✋ Cara Kontrol Gestur</div>
+  <h2>Kendalikan dengan Tangan</h2>
+  <div class="gesture-guide" style="grid-template-columns:repeat(3,1fr);gap:10px;width:100%;max-width:400px">
+    <div class="gg-card">
+      <div class="gg-emoji">🖐️</div>
+      <div class="gg-label">HALO</div>
+      <div class="gg-desc">Semua 5 jari terbuka</div>
+    </div>
+    <div class="gg-card">
+      <div class="gg-emoji">☝️</div>
+      <div class="gg-label">TENTANG SAYA</div>
+      <div class="gg-desc">Telunjuk saja</div>
+    </div>
+    <div class="gg-card">
+      <div class="gg-emoji">✌️</div>
+      <div class="gg-label">PENDIDIKAN</div>
+      <div class="gg-desc">Telunjuk + Tengah</div>
+    </div>
+    <div class="gg-card">
+      <div class="gg-emoji">🤟</div>
+      <div class="gg-label">HOBI</div>
+      <div class="gg-desc">+ Manis</div>
+    </div>
+    <div class="gg-card">
+      <div class="gg-emoji">🖖</div>
+      <div class="gg-label">LET'S CONNECT</div>
+      <div class="gg-desc">+ Kelingking</div>
+    </div>
+    <div class="gg-card" style="background:rgba(255,0,110,0.08);border-color:rgba(255,0,110,0.2)">
+      <div class="gg-emoji">⏱️</div>
+      <div class="gg-label" style="color:#ff006e">TAHAN</div>
+      <div class="gg-desc" style="color:var(--accent2)">0.8 detik</div>
+    </div>
+  </div>
+  <p style="font-size:12px;color:var(--dim);font-family:'Space Mono',monospace;text-align:center;max-width:300px">
+    Tambah jari bertahap: 5→1→2→3→4 jari. Tahan tiap gestur 0.8 detik agar slide berpindah.
+  </p>
+  <button class="start-btn" onclick="startApp()">Start</button>
+</div>
+
+<!-- Camera -->
+<div id="videoContainer" style="display:none">
+  <video id="inputVideo" autoplay muted playsinline></video>
+  <canvas id="handCanvas"></canvas>
+</div>
+
+<!-- Gesture Feedback -->
+<div id="gestureFeedback"></div>
+
+<!-- Main App -->
+<div id="app">
+
+  <!-- Slide 0: Halo -->
+  <div class="slide active" id="slide-0">
+    <div class="big-emoji">👋</div>
+    <div class="slide-tag">✨ Slide 01 / 05</div>
+    <h1>Halo, Saya<br>Dandy Ahmad!</h1>
+    <p>Saya adalah siswa SMKN 67.<br>Kendalikan presentasi ini <strong style="color:var(--accent)">hanya dengan tangan</strong>.</p>
+  </div>
+
+  <!-- Slide 1: Tentang Saya -->
+  <div class="slide" id="slide-1">
+    <div class="slide-tag">👤 Slide 02 / 05</div>
+    <h2>Tentang Saya</h2>
+    <div class="card-grid">
+      <div class="mini-card">
+        <div class="label">Nama</div>
+        <div class="val">Dandy Ahmad</div>
+      </div>
+      <div class="mini-card">
+        <div class="label">Usia</div>
+        <div class="val">## Tahun</div>
+      </div>
+      <div class="mini-card">
+        <div class="label">Asal</div>
+        <div class="val">Jakarta, ID</div>
+      </div>
+      <div class="mini-card">
+        <div class="label">Status</div>
+        <div class="val">Siswa</div>
+      </div>
+    </div>
+    <p>Seorang siswa Animasi yang bersemangat membangun solusi digital kreatif.</p>
+  </div>
+
+  <!-- Slide 2: Pendidikan -->
+  <div class="slide" id="slide-2">
+    <div class="slide-tag">🎓 Slide 03 / 05</div>
+    <h2>Pendidikan</h2>
+    <div class="big-emoji" style="font-size:48px">🏛️</div>
+    <div class="card-grid">
+      <div class="mini-card" style="grid-column:1/-1">
+        <div class="label">SMK Negeri 67</div>
+        <div class="val">Animasi</div>
+      </div>
+      <div class="mini-card">
+        <div class="label">Jurusan</div>
+        <div class="val">Ilmu Komputer</div>
+      </div>
+      <div class="mini-card">
+        <div class="label">Angkatan</div>
+        <div class="val">2027</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 3: Skill -->
+  <div class="slide" id="slide-3">
+    <div class="slide-tag">💻 Slide 04 / 05</div>
+    <h2>HOBI</h2>
+    <div class="skill-list">
+      <span class="skill-pill">Badminton</span>
+      <span class="skill-pill">Python</span>
+      <span class="skill-pill">Machine Learning</span>
+      <span class="skill-pill">MediaPipe</span>
+      <span class="skill-pill">Node.js</span>
+      <span class="skill-pill">EMEL</span>
+      <span class="skill-pill">EPEP</span>
+      <span class="skill-pill">Git</span>
+    </div>
+    <p>Suka membangun hal-hal yang belum pernah saya buat.</p>
+  </div>
+
+  <!-- Slide 4: Kontak -->
+  <div class="slide" id="slide-4">
+    <div class="big-emoji">🚀</div>
+    <div class="slide-tag">📬 Slide 05 / 05</div>
+    <h1>Mari Terhubung!</h1>
+    <div class="card-grid" style="max-width:320px">
+      <div class="mini-card">
+        <div class="label">Email</div>
+        <div class="val" style="font-size:12px"><a href="/cdn-cgi/l/email-protection" class="dandyahmad139@gmail.com" data-cfemail="b2d0dbdfd3f2d7dfd3dbde9cd1dddf">[email&#160;protected]</a></div>
+      </div>
+      <div class="mini-card">
+        <div class="label">GitHub</div>
+        <div class="val" style="font-size:12px">@dandyycihuyy</div>
+      </div>
+      <div class="mini-card" style="grid-column:1/-1">
+        <div class="label">LinkedIn</div>
+        <div class="val" style="font-size:12px">linkedin.com/in/bimadev</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Dots -->
+<div id="dots">
+  <div class="dot active" onclick="goTo(0)"></div>
+  <div class="dot" onclick="goTo(1)"></div>
+  <div class="dot" onclick="goTo(2)"></div>
+  <div class="dot" onclick="goTo(3)"></div>
+  <div class="dot" onclick="goTo(4)"></div>
+</div>
+
+<!-- HUD -->
+<div id="gestureHUD" style="display:none">
+  <div class="hud-dot"></div>
+  <span id="hudText">Tangan tidak terdeteksi</span>
+</div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+const TOTAL = 5;
+let current = 0;
+
+function goTo(i) {
+  if (i < 0 || i >= TOTAL) return;
+  document.getElementById('slide-' + current).classList.remove('active');
+  current = i;
+  document.getElementById('slide-' + current).classList.add('active');
+  document.querySelectorAll('.dot').forEach((d, idx) => {
+    d.classList.toggle('active', idx === current);
+  });
+}
+
+function showFeedback(emoji) {
+  const el = document.getElementById('gestureFeedback');
+  el.textContent = emoji;
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
+}
+
+/* ── Gesture Detection ── */
+let lastGesture = null;
+let gestureStartTime = 0;
+const HOLD_MS = 800;
+let gestureTriggered = false;
+let cooldown = false;
+
+function detectFingers(lm) {
+  // Returns boolean array [thumb, index, middle, ring, pinky]
+  const extended = [];
+
+  // Thumb: compare x (mirrored camera: tip.x > mcp.x means extended)
+  extended.push(lm[4].x > lm[3].x);
+
+  // Index, Middle, Ring, Pinky: tip.y < pip.y means finger is up
+  extended.push(lm[8].y  < lm[6].y);   // index
+  extended.push(lm[12].y < lm[10].y);  // middle
+  extended.push(lm[16].y < lm[14].y);  // ring
+  extended.push(lm[20].y < lm[18].y);  // pinky
+
+  return extended;
+}
+
+
+function classifyGesture(ext) {
+  const thumb = ext[0]; // jempol
+  const idx   = ext[1]; // telunjuk
+  const mid   = ext[2]; // tengah
+  const ring  = ext[3]; // manis
+  const pink  = ext[4]; // kelingking
+
+  // 5 jari semua terbuka → Halo (slide 0)
+  if (thumb && idx && mid && ring && pink) return 'FIVE';
+  // 4 jari: telunjuk+tengah+manis+kelingking → Mari Terhubung (slide 4)
+  if (idx && mid && ring && pink) return 'FOUR';
+  // 3 jari: telunjuk+tengah+manis → Keahlian (slide 3)
+  if (idx && mid && ring && !pink) return 'THREE';
+  // 2 jari: telunjuk+tengah → Pendidikan (slide 2)
+  if (idx && mid && !ring) return 'TWO';
+  // 1 jari: telunjuk saja → Tentang Saya (slide 1)
+  if (idx && !mid) return 'ONE';
+  return 'OTHER';
+}
+
+function handleGesture(gesture) {
+  if (cooldown) return;
+  const now = Date.now();
+
+  if (gesture !== lastGesture) {
+    lastGesture = gesture;
+    gestureStartTime = now;
+    gestureTriggered = false;
+    return;
+  }
+
+  if (!gestureTriggered && (now - gestureStartTime) >= HOLD_MS) {
+    gestureTriggered = true;
+    cooldown = true;
+    setTimeout(() => cooldown = false, 1200);
+
+    const slideMap = {
+      'FIVE':  { slide: 0, emoji: '🖐️' },
+      'ONE':   { slide: 1, emoji: '☝️' },
+      'TWO':   { slide: 2, emoji: '✌️' },
+      'THREE': { slide: 3, emoji: '🤟' },
+      'FOUR':  { slide: 4, emoji: '🖖' },
+    };
+
+    if (slideMap[gesture]) {
+      showFeedback(slideMap[gesture].emoji);
+      goTo(slideMap[gesture].slide);
+    }
+  }
+}
+
+/* ── MediaPipe Setup ── */
+function startApp() {
+  document.getElementById('guide').style.display = 'none';
+  document.getElementById('videoContainer').style.display = 'block';
+  document.getElementById('gestureHUD').style.display = 'flex';
+
+  const video = document.getElementById('inputVideo');
+  const canvas = document.getElementById('handCanvas');
+  const ctx = canvas.getContext('2d');
+  const hudText = document.getElementById('hudText');
+
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 0,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.6
+  });
+
+  hands.onResults(results => {
+    // Draw on mini canvas
+    canvas.width = video.videoWidth || 90;
+    canvas.height = video.videoHeight || 120;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const lm = results.multiHandLandmarks[0];
+      const ext = detectFingers(lm);
+      const gesture = classifyGesture(ext);
+
+      const hudMap = {
+        'FIVE':  '🖐️ 5 Jari → Halo!',
+        'ONE':   '☝️ 1 Jari → Tentang Saya',
+        'TWO':   '✌️ 2 Jari → Pendidikan',
+        'THREE': '🤟 3 Jari → Keahlian',
+        'FOUR':  '🖖 4 Jari → Mari Terhubung',
+        'OTHER': '🤔 Coba lagi...',
+      };
+      hudText.textContent = hudMap[gesture] || 'Deteksi...';
+
+      // Draw skeleton
+      ctx.strokeStyle = '#00f5ff';
+      ctx.lineWidth = 1.5;
+      ctx.fillStyle = '#ff006e';
+
+      const connections = [
+        [0,1],[1,2],[2,3],[3,4],
+        [0,5],[5,6],[6,7],[7,8],
+        [0,9],[9,10],[10,11],[11,12],
+        [0,13],[13,14],[14,15],[15,16],
+        [0,17],[17,18],[18,19],[19,20],
+        [5,9],[9,13],[13,17]
+      ];
+
+      connections.forEach(([a, b]) => {
+        ctx.beginPath();
+        ctx.moveTo(lm[a].x * canvas.width, lm[a].y * canvas.height);
+        ctx.lineTo(lm[b].x * canvas.width, lm[b].y * canvas.height);
+        ctx.stroke();
+      });
+
+      lm.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x * canvas.width, p.y * canvas.height, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      handleGesture(gesture);
+    } else {
+      hudText.textContent = 'Arahkan tangan ke kamera';
+      lastGesture = null;
+      gestureTriggered = false;
+    }
+  });
+
+  const camera = new Camera(video, {
+    onFrame: async () => { await hands.send({ image: video }); },
+    width: 320, height: 240,
+    facingMode: 'user'
+  });
+
+  camera.start().catch(err => {
+    hudText.textContent = '⚠️ Kamera tidak bisa diakses';
+    console.error(err);
+  });
+}
+
+/* ── Init ── */
+window.addEventListener('load', () => {
+  // Wait for MediaPipe libs to be ready
+  setTimeout(() => {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('guide').style.display = 'flex';
+  }, 2000);
+});
+
+// Touch nav for mobile fallback
+let touchStartX = 0;
+document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true })
